@@ -23,7 +23,7 @@ test("TextRenderer", () => {
   const path = passenger.pathToSeat();
   const coords = path?.map((cell) => `${cell.x},${cell.y}`).join(" ");
   console.log(coords);
-  expect(coords).toBe("3,0 3,1 4,1 5,1 6,1");
+  expect(coords).toBe("4,0 3,0 3,1 4,1 5,1 6,1");
   // move the passenger to the seat
   const startingCell = grid.cells[0].find((cell) => cell instanceof Alley)!;
   passenger.moveAt(startingCell);

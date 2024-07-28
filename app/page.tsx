@@ -1,63 +1,37 @@
 "use client";
-import { useEffect, useSyncExternalStore } from "react";
-import {
-  Grid,
-  gridStore,
-  JSXRenderer,
-  Passenger,
-  TextRenderer,
-} from "./airplane";
+import { startTransition, useEffect, useReducer, useState } from "react";
+import { Alley, Grid, JSXRenderer, Passenger } from "./airplane";
 
-const serverGrid = new Grid(7, 10);
 export default function Component() {
-  const grid = useSyncExternalStore(
-    gridStore.subscribe,
-    gridStore.getSnapshot,
-    () => serverGrid
-  );
+  const [grid] = useState<Grid>(() => {
+    const grid = new Grid(7, 10);
+    return grid;
+  });
+
+  const [, rerender] = useReducer((i) => i + 1, 0);
 
   useEffect(() => {
-    const passengers = grid.cells
-      .flat()
-      .map((cell) => cell.passengers)
-      .flat();
-    if (passengers.length === 0) {
-      // create a new passenger if there are no passengers
-      const x = Math.floor(Math.random() * grid.cells[0].length);
-      const y = Math.floor(Math.random() * grid.cells.length);
-      const passenger = new Passenger(grid.get(x, y)!, "p");
-      passengers.push(passenger);
-    }
-    const onkeydown = (e: KeyboardEvent) => {
-      for (let passenger of passengers) {
-        if (e.key === "ArrowRight") {
-          passenger.moveRight();
-        } else if (e.key === "ArrowLeft") {
-          passenger.moveLeft();
-        } else if (e.key === "ArrowUp") {
-          passenger.moveUp();
-        } else if (e.key === "ArrowDown") {
-          passenger.moveDown();
-        }
-      }
-      if (e.key === " ") {
-        // create a new passenger
-        const x = Math.floor(Math.random() * grid.cells[0].length);
-        const y = Math.floor(Math.random() * grid.cells.length);
-        new Passenger(grid.get(x, y)!, "p");
-      }
-    };
-
-    window.addEventListener("keydown", onkeydown);
-
-    return () => window.removeEventListener("keydown", onkeydown);
+    return grid.subscribe(rerender);
   }, [grid]);
 
-  console.log(grid?.render(new TextRenderer()));
+  // console.log(grid?.render(new TextRenderer()));
   return (
     <>
-      <div className="flex items-center justify-center h-screen">
+      <div className="flex flex-col items-center justify-center h-screen">
         {grid?.render(new JSXRenderer())}
+        <button
+          onClick={async () => {
+            startTransition(async () => {
+              while (!grid.allPassengersSeated) {
+                grid.movePassengers();
+                await new Promise((resolve) => setTimeout(resolve, 500));
+              }
+            });
+          }}
+        >
+          launch
+        </button>
+        <input></input>
       </div>
     </>
   );

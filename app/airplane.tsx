@@ -5,8 +5,8 @@ const SEAT = "S";
 const VOID = " ";
 const PASSENGER = new RegExp(/[a-z]/);
 
-type CellType = "seat" | "alley";
-abstract class Cell {
+type CellType = "seat" | "alley" | "entrance" | "void";
+class Cell {
   x: number;
   y: number;
   passengers: Array<Passenger>;
@@ -25,7 +25,9 @@ abstract class Cell {
     return this.passengers.length === 0;
   }
 
-  abstract render<T>(renderer: Renderer<T>): T;
+  render<T>(renderer: Renderer<T>): T {
+    return renderer.render(this);
+  }
 
   up() {
     return this.grid.get(this.x, this.y - 1);
@@ -65,21 +67,39 @@ class Passenger {
   passenger: string;
   assignedSeat: string = "";
   cell: Cell;
+  embarked: boolean = false;
   constructor(cell: Cell, passenger: string) {
     this.passenger = passenger;
     this.cell = cell;
     cell.passengers.push(this);
-    emitChange();
   }
   render<T>(renderer: Renderer<T>) {
     return renderer.render(this);
+  }
+
+  takeTurn() {
+    if (this.assignedSeat === "") {
+      return;
+    }
+    const path = this.pathToSeat();
+    if (!path) {
+      return;
+    }
+    const nextCell = path.shift();
+    if (nextCell) {
+      if (nextCell.isEmpty()) {
+        this.move(nextCell);
+      } else if (nextCell instanceof Seat) {
+        // we have to go trough the passenger
+        this.move(nextCell);
+      }
+    }
   }
 
   private move(cell: Cell) {
     this.cell.passengers = this.cell.passengers.filter((c) => c !== this);
     this.cell = cell;
     cell.passengers.push(this);
-    emitChange();
   }
 
   assignSeat(seat: string) {
@@ -90,15 +110,13 @@ class Passenger {
     if (this.assignedSeat === "") {
       return;
     }
-    // always start from alley on the first row
-    const start = this.cell.grid.cells[0].find((cell) => cell instanceof Alley);
-    if (!start) {
-      throw new Error("No alley found");
+    let current = this.cell;
+    if (!this.cell) {
+      throw new Error("No cell found");
     }
+    const path = [];
     const [x, y] = this.assignedSeat.split(",").map(Number);
 
-    const path = [start];
-    let current = start;
     while (current.y !== y) {
       current = current.down()!;
       path.push(current);
@@ -110,6 +128,7 @@ class Passenger {
       while (current.x !== x) {
         current = current.right()!;
         path.push(current);
+        console.log(current.x, x);
       }
     } else {
       while (current.x !== x) {
@@ -162,60 +181,78 @@ class Passenger {
   }
 }
 
-const pattern = [SEAT, SEAT, SEAT, SEAT, ALLEY, SEAT, SEAT, SEAT, SEAT];
-
 class Grid {
+  movePassengers() {
+    this.passengers.forEach((p) => p.takeTurn());
+    this.listeners.forEach((listener) => listener());
+    if (
+      this.passengers.every((p) => {
+        return p.cell instanceof Seat && p.cell.seat === p.assignedSeat;
+      })
+    ) {
+      this.allPassengersSeated = true;
+    }
+  }
   cells: Cell[][];
-  constructor(width: number, height: number) {
-    this.cells = Array.from({ length: height }, (_, y) =>
+  listeners: Array<() => void>;
+  allPassengersSeated: boolean = false;
+  passengers: Array<Passenger> = [];
+
+  constructor(width: number = 0, height: number = 0) {
+    this.cells = [];
+    this.listeners = [];
+
+    // first row is the entrance with void cells
+    this.cells.push(
       Array.from({ length: width }, (_, x) => {
-        // if (pattern[x % pattern.length] === SEAT) {
-        //   return new Seat(x, y, this, "seat", `${x},${y}`);
-        // }
-        // return new Alley(x, y, this, "alley");
-        // alley are in the middle of the row
         if (x === Math.floor(width / 2)) {
-          return new Alley(x, y, this, "alley");
+          return new Cell(x, 0, this, "entrance");
         }
-        // seats are on the sides
-        return new Seat(x, y, this, "seat", `${x},${y}`);
+        return new Cell(x, 0, this, "void");
       })
     );
+
+    const entrance = this.cells[0][Math.floor(width / 2)];
+    // rest of the rows are seats and alleys
+    for (let y = 1; y < height; y++) {
+      this.cells.push(
+        Array.from({ length: width }, (_, x) => {
+          if (x === Math.floor(width / 2)) {
+            return new Alley(x, y, this, "alley");
+          }
+          return new Seat(x, y, this, "seat", `${x},${y}`);
+        })
+      );
+    }
+    // create passengers, assign each passenger to a seat, they all start at the entrance
+    for (let y = 1; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const cell = this.cells[y][x];
+        if (cell instanceof Seat) {
+          const passenger = new Passenger(
+            entrance,
+            String.fromCharCode(97 + x)
+          );
+          passenger.assignSeat(`${x},${y}`);
+          this.passengers.push(passenger);
+        }
+      }
+    }
   }
+
+  subscribe(listener: () => void) {
+    this.listeners = [...this.listeners, listener];
+    return () => {
+      this.listeners = this.listeners.filter((l) => l !== listener);
+    };
+  }
+
   get(x: number, y: number): Cell | undefined {
     return this.cells[y]?.[x];
   }
 
-  copy() {
-    const grid = new Grid(this.cells[0].length, this.cells.length);
-    grid.cells = this.cells.map((row) => row.map((cell) => cell));
-    return grid;
-  }
-
   render<T>(renderer: Renderer<T>): T {
     return renderer.render(this);
-  }
-}
-
-let grid = new Grid(pattern.length, 10);
-let listeners: Array<() => void> = [];
-
-export const gridStore = {
-  subscribe(listener: () => void) {
-    listeners = [...listeners, listener];
-    return () => {
-      listeners = listeners.filter((l) => l !== listener);
-    };
-  },
-  getSnapshot() {
-    return grid;
-  },
-};
-
-function emitChange() {
-  grid = grid.copy();
-  for (let listener of listeners) {
-    listener();
   }
 }
 
@@ -242,11 +279,15 @@ export class JSXRenderer extends Renderer<JSX.Element> {
             const content = Array.from(element.passengers)[0];
             return this.render(content);
           }
-          return (
-            <div className="flex items-center justify-center w-8 h-8 bg-gray-500 text-white rounded">
-              {ALLEY}
-            </div>
-          );
+          return <div className="w-8 h-8"></div>;
+        case "entrance":
+          if (element.passengers.length > 0) {
+            const content = Array.from(element.passengers)[0];
+            return this.render(content);
+          }
+          return <div className="w-8 h-8"></div>;
+        case "void":
+          return <div className="bg-transparent w-8 h-8"></div>;
       }
     }
     if (element instanceof Grid) {
@@ -263,6 +304,14 @@ export class JSXRenderer extends Renderer<JSX.Element> {
       );
     }
     if (element instanceof Passenger) {
+      const hasMultiplePassengers = element.cell.passengers.length > 1;
+      if (hasMultiplePassengers) {
+        return (
+          <div className="flex items-center justify-center w-8 h-8 bg-red-500 text-white rounded-full">
+            {element.passenger}
+          </div>
+        );
+      }
       return (
         <div className="flex items-center justify-center w-8 h-8 bg-green-500 text-white rounded-full">
           {element.passenger}
