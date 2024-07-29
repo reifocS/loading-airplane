@@ -68,6 +68,7 @@ class Passenger {
   assignedSeat: string = "";
   cell: Cell;
   embarked: boolean = false;
+  color: string = `#${Math.floor(Math.random() * 16777215).toString(16)}`;
   constructor(cell: Cell, passenger: string) {
     this.passenger = passenger;
     this.cell = cell;
@@ -81,11 +82,7 @@ class Passenger {
     if (this.assignedSeat === "") {
       return;
     }
-    const path = this.pathToSeat();
-    if (!path) {
-      return;
-    }
-    const nextCell = path.shift();
+    const nextCell = this.nextCell();
     if (nextCell) {
       if (nextCell.isEmpty()) {
         this.move(nextCell);
@@ -106,45 +103,29 @@ class Passenger {
     this.assignedSeat = seat;
   }
 
-  pathToSeat() {
+  nextCell() {
     if (this.assignedSeat === "") {
+      return;
+    }
+    if (this.cell instanceof Seat && this.cell.seat === this.assignedSeat) {
       return;
     }
     let current = this.cell;
     if (!this.cell) {
       throw new Error("No cell found");
     }
-    const path = [];
     const [x, y] = this.assignedSeat.split(",").map(Number);
 
-    while (current.y !== y) {
-      current = current.down()!;
-      path.push(current);
+    if (current.y !== y) {
+      return current.down()!;
     }
 
     // if we are on the alley, we move to the seat row
     // left or right
     if (current.x < x) {
-      while (current.x !== x) {
-        current = current.right()!;
-        path.push(current);
-        console.log(current.x, x);
-      }
+      return current.right()!;
     } else {
-      while (current.x !== x) {
-        current = current.left()!;
-        path.push(current);
-      }
-    }
-
-    if (current.x !== x || current.y !== y) {
-      throw new Error("No seat found");
-    }
-
-    if (current instanceof Seat) {
-      return path;
-    } else {
-      throw new Error("No seat found");
+      return current.left()!;
     }
   }
 
@@ -198,6 +179,30 @@ class Grid {
   allPassengersSeated: boolean = false;
   passengers: Array<Passenger> = [];
 
+  frontToBack() {
+    this.passengers = this.passengers.sort((a, b) => {
+      // check assigned seat
+      const aSeat = a.assignedSeat.split(",").map(Number);
+      const bSeat = b.assignedSeat.split(",").map(Number);
+      return aSeat[1] - bSeat[1];
+    });
+  }
+
+  randomize() {
+    this.passengers = this.passengers.sort(() => Math.random() - 0.5);
+  }
+
+  windowMiddleAisle() {}
+
+  backToFront() {
+    this.passengers = this.passengers.sort((a, b) => {
+      // check assigned seat
+      const aSeat = a.assignedSeat.split(",").map(Number);
+      const bSeat = b.assignedSeat.split(",").map(Number);
+      return bSeat[1] - aSeat[1];
+    });
+  }
+
   constructor(width: number = 0, height: number = 0) {
     this.cells = [];
     this.listeners = [];
@@ -229,10 +234,7 @@ class Grid {
       for (let x = 0; x < width; x++) {
         const cell = this.cells[y][x];
         if (cell instanceof Seat) {
-          const passenger = new Passenger(
-            entrance,
-            String.fromCharCode(97 + x)
-          );
+          const passenger = new Passenger(entrance, `${x}${y}`);
           passenger.assignSeat(`${x},${y}`);
           this.passengers.push(passenger);
         }
@@ -266,12 +268,12 @@ export class JSXRenderer extends Renderer<JSX.Element> {
       switch (element.type) {
         case "seat":
           if (element.passengers.length > 0) {
-            const content = Array.from(element.passengers)[0];
+            const content = element.passengers[element.passengers.length - 1];
             return this.render(content);
           }
           return (
             <div className="flex items-center justify-center w-8 h-8 bg-orange-500 text-white rounded">
-              {element instanceof Seat ? element.seat : ""}
+              {element instanceof Seat ? element.seat.replace(",", "") : ""}
             </div>
           );
         case "alley":
@@ -304,16 +306,13 @@ export class JSXRenderer extends Renderer<JSX.Element> {
       );
     }
     if (element instanceof Passenger) {
-      const hasMultiplePassengers = element.cell.passengers.length > 1;
-      if (hasMultiplePassengers) {
-        return (
-          <div className="flex items-center justify-center w-8 h-8 bg-red-500 text-white rounded-full">
-            {element.passenger}
-          </div>
-        );
-      }
       return (
-        <div className="flex items-center justify-center w-8 h-8 bg-green-500 text-white rounded-full">
+        <div
+          className="flex items-center justify-center w-8 h-8 text-white rounded-full"
+          style={{
+            backgroundColor: element.color,
+          }}
+        >
           {element.passenger}
         </div>
       );
