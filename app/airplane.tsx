@@ -68,7 +68,9 @@ class Passenger {
   assignedSeat: string = "";
   cell: Cell;
   embarked: boolean = false;
-  color: string = `#${Math.floor(Math.random() * 16777215).toString(16)}`;
+  luggageLoadingTime: number = 3; // Time to load luggage in turns
+  isLoadingLuggage: boolean = false;
+
   constructor(cell: Cell, passenger: string) {
     this.passenger = passenger;
     this.cell = cell;
@@ -91,6 +93,9 @@ class Passenger {
         this.move(nextCell);
       }
     }
+    if (nextCell instanceof Seat && nextCell.seat === this.assignedSeat) {
+      this.embarked = true;
+    }
   }
 
   private move(cell: Cell) {
@@ -107,7 +112,7 @@ class Passenger {
     if (this.assignedSeat === "") {
       return;
     }
-    if (this.cell instanceof Seat && this.cell.seat === this.assignedSeat) {
+    if (this.embarked) {
       return;
     }
     let current = this.cell;
@@ -120,8 +125,16 @@ class Passenger {
       return current.down()!;
     }
 
+    if (this.luggageLoadingTime > 0) {
+      this.isLoadingLuggage = true;
+      this.luggageLoadingTime--;
+      return current;
+    }
+
+    this.isLoadingLuggage = false;
     // if we are on the alley, we move to the seat row
     // left or right
+
     if (current.x < x) {
       return current.right()!;
     } else {
@@ -164,8 +177,12 @@ class Passenger {
 
 class Grid {
   movePassengers() {
+    if (this.isPaused) {
+      return;
+    }
     this.passengers.forEach((p) => p.takeTurn());
-    this.listeners.forEach((listener) => listener());
+    this.iterations++;
+    this.emitChange();
     if (
       this.passengers.every((p) => {
         return p.cell instanceof Seat && p.cell.seat === p.assignedSeat;
@@ -178,6 +195,8 @@ class Grid {
   listeners: Array<() => void>;
   allPassengersSeated: boolean = false;
   passengers: Array<Passenger> = [];
+  isPaused: boolean = false;
+  iterations: number = 0;
 
   frontToBack() {
     this.passengers = this.passengers.sort((a, b) => {
@@ -193,6 +212,85 @@ class Grid {
   }
 
   windowMiddleAisle() {}
+
+  /**
+   *
+   * Put a set of passengers in order for boarding according to Steffen (2008)
+   *
+   * This method orders passengers from back to front, every other row, on
+   * alternate sides of the aircraft, from the outside in. There's a good diagram
+   * in the original paper but here's a very simple example:
+   *
+   * 6  2  5  1
+   * 14 10 13 9
+   *
+   * 16 12 15 11
+   * 8  4  7  3
+   */
+  steffen() {
+    const seatMap: Record<string, Passenger> = {};
+    for (const p of this.passengers) {
+      seatMap[p.assignedSeat] = p;
+    }
+    // Iterate from the outside to the inside of the plane
+    const sortedPassengers = new Array();
+    let rightCol = 0;
+    const rowCount = this.cells.length - 1;
+    const colCount = this.cells[0].length;
+
+    let leftCol = colCount - 1;
+    while (leftCol >= rightCol) {
+      // Iterate over the rows from the back of the plane to the front
+      const rightColName = rightCol;
+      const leftColName = leftCol;
+      for (let row = rowCount; row > 0; row -= 2) {
+        let seat = `${rightColName},${row}`;
+        let passenger = seatMap[seat];
+        if (passenger !== undefined) {
+          sortedPassengers.push(seatMap[seat]);
+        }
+        if (leftCol !== rightCol) {
+          seat = `${leftColName},${row}`;
+          passenger = seatMap[seat];
+          if (passenger !== undefined) {
+            sortedPassengers.push(seatMap[seat]);
+          }
+        }
+      }
+      for (let row = rowCount - 1; row > 0; row -= 2) {
+        let seat = `${rightColName},${row}`;
+        let passenger = seatMap[seat];
+        if (passenger !== undefined) {
+          sortedPassengers.push(seatMap[seat]);
+        }
+        if (leftCol !== rightCol) {
+          seat = `${leftColName},${row}`;
+          passenger = seatMap[seat];
+          if (passenger !== undefined) {
+            sortedPassengers.push(seatMap[seat]);
+          }
+        }
+      }
+      // Move in towards the center of the aircraft
+      leftCol--;
+      rightCol++;
+    }
+    this.passengers = sortedPassengers;
+  }
+
+  pause() {
+    this.isPaused = true;
+    this.emitChange();
+  }
+
+  private emitChange() {
+    this.listeners.forEach((listener) => listener());
+  }
+
+  resume() {
+    this.isPaused = false;
+    this.emitChange();
+  }
 
   backToFront() {
     this.passengers = this.passengers.sort((a, b) => {
@@ -273,18 +371,27 @@ export class JSXRenderer extends Renderer<JSX.Element> {
           }
           return (
             <div className="flex items-center justify-center w-8 h-8 bg-orange-500 text-white rounded">
-              {element instanceof Seat ? element.seat.replace(",", "") : ""}
+              {/* {element instanceof Seat ? element.seat.replace(",", "") : ""} */}
             </div>
           );
         case "alley":
           if (element.passengers.length > 0) {
-            const content = Array.from(element.passengers)[0];
+            const order = element.grid.passengers;
+            const content = order.find((p) => p.cell === element);
+            if (!content) {
+              throw new Error("No passenger found");
+            }
+
             return this.render(content);
           }
           return <div className="w-8 h-8"></div>;
         case "entrance":
           if (element.passengers.length > 0) {
-            const content = Array.from(element.passengers)[0];
+            const order = element.grid.passengers;
+            const content = order.find((p) => p.cell === element);
+            if (!content) {
+              throw new Error("No passenger found");
+            }
             return this.render(content);
           }
           return <div className="w-8 h-8"></div>;
@@ -306,12 +413,18 @@ export class JSXRenderer extends Renderer<JSX.Element> {
       );
     }
     if (element instanceof Passenger) {
+      // if seated, blue else orange
+      const color = element.embarked
+        ? "bg-blue-500"
+        : element.isLoadingLuggage
+        ? "bg-yellow-500"
+        : "bg-purple-500";
       return (
         <div
-          className="flex items-center justify-center w-8 h-8 text-white rounded-full"
-          style={{
-            backgroundColor: element.color,
-          }}
+          className={
+            "flex items-center justify-center w-8 h-8 text-white rounded-full " +
+            color
+          }
         >
           {element.passenger}
         </div>
