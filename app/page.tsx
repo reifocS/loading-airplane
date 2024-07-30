@@ -90,9 +90,9 @@ function Component({
               if (strategy === "random") {
                 grid.randomize();
               }
-              if (strategy === "windowMiddleAisle") {
-                grid.windowMiddleAisle();
-              }
+              // if (strategy === "windowMiddleAisle") {
+              //   grid.windowMiddleAisle();
+              // }
               if (strategy === "steffen") {
                 grid.steffen();
               }
@@ -164,9 +164,9 @@ function Component({
               <SelectItem value="backToFront">Back to Front</SelectItem>
               <SelectItem value="frontToBack">Front to Back</SelectItem>
               <SelectItem value="random">Random</SelectItem>
-              <SelectItem value="windowMiddleAisle">
+              {/* <SelectItem value="windowMiddleAisle">
                 Window Middle Aisle
-              </SelectItem>
+              </SelectItem> */}
               <SelectItem value="steffen">Steffen Modified</SelectItem>
             </SelectContent>
             {/* <option value="windowMiddleAisle">Window Middle Aisle</option>
